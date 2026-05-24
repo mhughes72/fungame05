@@ -10,10 +10,17 @@ from typing import Any
 
 from game.config import (
     MAX_TURNS,
+    STARTING_ECONOMY_STATS,
     STARTING_FACTION_SUPPORT,
     STARTING_NATIONAL_STATS,
 )
 from game.crises import CRISIS_TEMPLATES
+from game.economy import (
+    apply_economy_effects,
+    compute_economy_drift,
+    compute_faction_pressure,
+    get_crisis_weights,
+)
 from game.engine import (
     apply_ai_modifiers,
     apply_base_effects,
@@ -105,6 +112,7 @@ def initialize_game(_state: GameState) -> dict:
         "end_state": None,
         "loss_reason": None,
         "national_stats": dict(STARTING_NATIONAL_STATS),
+        "economy_stats": dict(STARTING_ECONOMY_STATS),
         "faction_support": dict(STARTING_FACTION_SUPPORT),
         "faction_personas": personas,
         "faction_event_flags": {fid: [] for fid in STARTING_FACTION_SUPPORT},
@@ -112,12 +120,16 @@ def initialize_game(_state: GameState) -> dict:
         "used_crisis_ids": [],
         "player_choice_index": None,
         "base_stat_effects": None,
+        "base_economy_effects": None,
         "base_faction_effects": None,
         "ai_reactions": None,
         "ai_modifiers": None,
         "final_stat_effects": None,
+        "final_economy_effects": None,
         "final_faction_effects": None,
         "triggered_events": [],
+        "economy_drift_descriptions": [],
+        "faction_pressure_descriptions": [],
         "situation_briefing": None,
         "advisor_reactions": None,
         "faction_narrative": None,
@@ -127,9 +139,47 @@ def initialize_game(_state: GameState) -> dict:
         "turn_history": [],
     }
     dbg.state_snapshot("after init", result, [
-        "game_id", "current_turn", "max_turns", "national_stats", "faction_support"
+        "game_id", "current_turn", "max_turns", "national_stats", "economy_stats", "faction_support"
     ])
     dbg.node_exit("initialize_game", result)
+    return result
+
+
+# ── Node: run_economy_drift ────────────────────────────────────────────────────
+
+def run_economy_drift(state: GameState) -> dict:
+    dbg.node_enter("run_economy_drift")
+    new_economy, drift_descriptions = compute_economy_drift(
+        state["economy_stats"],
+        state["national_stats"],
+    )
+    new_factions, pressure_descriptions = compute_faction_pressure(
+        new_economy,
+        state["faction_support"],
+    )
+
+    from cli.debug import _enabled
+    if _enabled():
+        from rich.console import Console
+        c = Console(stderr=True, style="dim")
+        if drift_descriptions:
+            c.print("  [dim]Economy drift triggers:[/dim]")
+            for d in drift_descriptions:
+                c.print(f"    • {d}")
+        else:
+            c.print("  [dim]Economy drift: no rules triggered[/dim]")
+        if pressure_descriptions:
+            c.print("  [dim]Faction pressure triggers:[/dim]")
+            for d in pressure_descriptions:
+                c.print(f"    • {d}")
+
+    result = {
+        "economy_stats": new_economy,
+        "faction_support": new_factions,
+        "economy_drift_descriptions": drift_descriptions,
+        "faction_pressure_descriptions": pressure_descriptions,
+    }
+    dbg.node_exit("run_economy_drift", result)
     return result
 
 
@@ -141,17 +191,21 @@ def select_crisis(state: GameState) -> dict:
     available = [c for c in CRISIS_TEMPLATES if c["crisis_id"] not in used]
     if not available:
         available = list(CRISIS_TEMPLATES)
-    crisis = random.choice(available)
+
+    weights = get_crisis_weights(state["economy_stats"], state["national_stats"], available)
+    crisis = random.choices(available, weights=weights, k=1)[0]
 
     result = {
         "active_crisis": crisis,
         "used_crisis_ids": state["used_crisis_ids"] + [crisis["crisis_id"]],
         "player_choice_index": None,
         "base_stat_effects": None,
+        "base_economy_effects": None,
         "base_faction_effects": None,
         "ai_reactions": None,
         "ai_modifiers": None,
         "final_stat_effects": None,
+        "final_economy_effects": None,
         "final_faction_effects": None,
         "triggered_events": [],
         "situation_briefing": None,
@@ -163,11 +217,13 @@ def select_crisis(state: GameState) -> dict:
 
     from cli.debug import _enabled
     if _enabled():
-        import game.config as cfg
         from rich.console import Console
         c = Console(stderr=True, style="dim")
         c.print(f"  [dim]Selected crisis:[/dim] [bold]{crisis['crisis_id']}[/bold] — {crisis['title']}")
         c.print(f"  [dim]Remaining pool:[/dim] {len(available) - 1} unused")
+        boosted = [available[i]["crisis_id"] for i, w in enumerate(weights) if w > 1]
+        if boosted:
+            c.print(f"  [dim]Boosted by economy:[/dim] {', '.join(boosted)}")
 
     dbg.node_exit("select_crisis", result)
     return result
@@ -181,6 +237,7 @@ def generate_situation_briefing(state: GameState) -> dict:
         turn=state["current_turn"],
         max_turns=state["max_turns"],
         national_stats=state["national_stats"],
+        economy_stats=state["economy_stats"],
         faction_support=state["faction_support"],
         recent_events=state["recent_events"],
     )
@@ -226,14 +283,24 @@ def apply_base_effects_node(state: GameState) -> dict:
         option["stat_effects"],
         option["faction_effects"],
     )
+    economy_fx = option.get("economy_effects", {})
+    new_economy = apply_economy_effects(state["economy_stats"], economy_fx)
     event_flags = option.get("event_flags", {})
 
     dbg.base_effects(option["stat_effects"], option["faction_effects"])
 
+    from cli.debug import _enabled
+    if _enabled() and economy_fx:
+        from rich.console import Console
+        c = Console(stderr=True, style="dim")
+        c.print(f"  [dim]Base economy effects:[/dim] {economy_fx}")
+
     result = {
         "base_stat_effects":    option["stat_effects"],
+        "base_economy_effects": economy_fx,
         "base_faction_effects": option["faction_effects"],
         "national_stats":       new_stats,
+        "economy_stats":        new_economy,
         "faction_support":      new_factions,
         "faction_event_flags":  event_flags,
     }
@@ -248,7 +315,6 @@ def classify_faction_reactions(state: GameState) -> dict:
     option = state["active_crisis"]["options"][state["player_choice_index"]]
     affected = option["affected_factions"]
 
-    # Save support values before AI modifier for debug comparison
     support_before = dict(state["faction_support"])
 
     faction_contexts = [
@@ -270,6 +336,7 @@ def classify_faction_reactions(state: GameState) -> dict:
         affected_factions=affected,
         faction_contexts=faction_contexts,
         national_stats=state["national_stats"],
+        economy_stats=state["economy_stats"],
         recent_events=state["recent_events"],
     )
 
@@ -302,6 +369,7 @@ def compute_final_effects(state: GameState) -> dict:
     dbg.node_enter("compute_final_effects")
     option = state["active_crisis"]["options"][state["player_choice_index"]]
     base_stat = option["stat_effects"]
+    base_eco  = option.get("economy_effects", {})
     base_fac  = option["faction_effects"]
     mods      = state.get("ai_modifiers") or {}
 
@@ -322,8 +390,9 @@ def compute_final_effects(state: GameState) -> dict:
             c.print(f"    {fid}: {b:+d} base  {m:+d} AI  = [bold]{total:+d}[/bold]")
 
     result = {
-        "final_stat_effects":    base_stat,
-        "final_faction_effects": final_fac,
+        "final_stat_effects":     base_stat,
+        "final_economy_effects":  base_eco,
+        "final_faction_effects":  final_fac,
     }
     dbg.node_exit("compute_final_effects", result)
     return result
@@ -340,22 +409,27 @@ def check_threshold_events_node(state: GameState) -> dict:
         state["national_stats"],
         state["faction_support"],
         already,
+        state["economy_stats"],
     )
 
     dbg.threshold_checks_clean(state["national_stats"], state["faction_support"], new_triggers)
 
-    new_stats   = dict(state["national_stats"])
+    new_stats    = dict(state["national_stats"])
     new_factions = dict(state["faction_support"])
+    new_economy  = dict(state["economy_stats"])
     event_descriptions = []
 
     for event_key in new_triggers:
-        new_stats, new_factions = apply_threshold_effects(event_key, new_stats, new_factions)
+        new_stats, new_factions, new_economy = apply_threshold_effects(
+            event_key, new_stats, new_factions, new_economy
+        )
         from game.config import THRESHOLD_EVENTS
         event_descriptions.append(THRESHOLD_EVENTS[event_key]["description"])
 
     result = {
         "triggered_events": new_triggers,
         "national_stats":   new_stats,
+        "economy_stats":    new_economy,
         "faction_support":  new_factions,
         "recent_events":    update_recent_events(state["recent_events"], event_descriptions),
     }
@@ -419,17 +493,20 @@ def save_turn_history(state: GameState) -> dict:
     dbg.node_enter("save_turn_history")
     option = state["active_crisis"]["options"][state["player_choice_index"]]
     record = {
-        "turn_number":        state["current_turn"],
-        "crisis_id":          state["active_crisis"]["crisis_id"],
-        "crisis_title":       state["active_crisis"]["title"],
-        "selected_option":    option["label"],
-        "base_stat_effects":  state["base_stat_effects"],
-        "base_fac_effects":   state["base_faction_effects"],
-        "ai_reactions":       state["ai_reactions"],
-        "ai_modifiers":       state["ai_modifiers"],
-        "final_stat_effects": state["final_stat_effects"],
-        "final_fac_effects":  state["final_faction_effects"],
-        "triggered_events":   state["triggered_events"],
+        "turn_number":          state["current_turn"],
+        "crisis_id":            state["active_crisis"]["crisis_id"],
+        "crisis_title":         state["active_crisis"]["title"],
+        "selected_option":      option["label"],
+        "base_stat_effects":    state["base_stat_effects"],
+        "base_economy_effects": state["base_economy_effects"],
+        "base_fac_effects":     state["base_faction_effects"],
+        "ai_reactions":         state["ai_reactions"],
+        "ai_modifiers":         state["ai_modifiers"],
+        "final_stat_effects":   state["final_stat_effects"],
+        "final_economy_effects": state["final_economy_effects"],
+        "final_fac_effects":    state["final_faction_effects"],
+        "triggered_events":     state["triggered_events"],
+        "economy_snapshot":     dict(state["economy_stats"]),
     }
     result = {
         "turn_history": state["turn_history"] + [record],

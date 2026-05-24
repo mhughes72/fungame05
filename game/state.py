@@ -15,6 +15,7 @@ class GameState(TypedDict):
 
     # ── Core game data ────────────────────────────────────────────────────────
     national_stats: dict[str, int]
+    economy_stats: dict[str, int]      # stock_market, unemployment, consumer_prices, budget_deficit
     faction_support: dict[str, int]
     faction_personas: dict[str, dict[str, Any]]
     # Option C hybrid mood: one-turn event flags appended per turn, reset each turn
@@ -27,12 +28,18 @@ class GameState(TypedDict):
 
     # ── Effects computed during a turn ────────────────────────────────────────
     base_stat_effects: Optional[dict[str, int]]
+    base_economy_effects: Optional[dict[str, int]]
     base_faction_effects: Optional[dict[str, int]]
     ai_reactions: Optional[dict[str, dict[str, str]]]   # {faction_id: {reaction, confidence, reason}}
     ai_modifiers: Optional[dict[str, int]]              # {faction_id: bounded delta}
     final_stat_effects: Optional[dict[str, int]]
+    final_economy_effects: Optional[dict[str, int]]
     final_faction_effects: Optional[dict[str, int]]
     triggered_events: list[str]        # threshold event keys triggered this turn
+
+    # ── Economy drift (recorded for display/debug) ────────────────────────────
+    economy_drift_descriptions: list[str]    # which drift rules fired this turn
+    faction_pressure_descriptions: list[str] # which pressure rules fired this turn
 
     # ── LLM narrative outputs (display only, never alter state) ───────────────
     situation_briefing: Optional[str]

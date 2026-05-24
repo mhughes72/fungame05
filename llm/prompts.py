@@ -63,6 +63,7 @@ def situation_briefing_prompt(
     turn: int,
     max_turns: int,
     national_stats: dict[str, int],
+    economy_stats: dict[str, int],
     faction_support: dict[str, int],
     recent_events: list[str],
 ) -> list[dict]:
@@ -75,6 +76,8 @@ def situation_briefing_prompt(
     user = (
         f"Write a 2–3 sentence situation briefing for Month {turn} of {max_turns}.\n\n"
         f"Current national stats (0–100 scale):\n{json.dumps(national_stats, indent=2)}\n\n"
+        f"Economy sub-stats (0–100 scale; unemployment/consumer_prices/budget_deficit: high = bad):\n"
+        f"{json.dumps(economy_stats, indent=2)}\n\n"
         f"Faction support (0–100 scale):\n{json.dumps(faction_support, indent=2)}\n\n"
         f"Recent notable events:\n{json.dumps(recent_events, indent=2)}\n\n"
         "Describe the current political atmosphere. Be specific, not generic. "
@@ -108,6 +111,7 @@ def reaction_classification_prompt(
     affected_factions: list[str],
     faction_contexts: list[dict],
     national_stats: dict[str, int],
+    economy_stats: dict[str, int],
     recent_events: list[str],
 ) -> list[dict]:
     system = (
@@ -124,7 +128,9 @@ def reaction_classification_prompt(
         f"Crisis: {crisis_title}\n"
         f"Decision taken: {selected_option_label} — {selected_option_description}\n"
         f"Policy tags: {', '.join(policy_tags)}\n\n"
-        f"Current national mood (for context):\n{json.dumps(national_stats, indent=2)}\n\n"
+        f"Current national stats (for context):\n{json.dumps(national_stats, indent=2)}\n\n"
+        f"Current economic conditions (unemployment/consumer_prices/budget_deficit: high = bad):\n"
+        f"{json.dumps(economy_stats, indent=2)}\n\n"
         f"Recent notable events:\n{json.dumps(recent_events, indent=2)}\n\n"
         f"Faction contexts:\n{json.dumps(faction_contexts, indent=2)}\n\n"
         f"Classify the reaction of each of these factions: {', '.join(affected_factions)}"

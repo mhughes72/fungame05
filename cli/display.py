@@ -11,32 +11,41 @@ from rich import box
 from rich.rule import Rule
 from rich.columns import Columns
 
+from game.economy import composite_economy_score
+
 console = Console()
 
 STAT_LABELS = {
     "public_trust":             "Public Trust",
     "unrest":                   "Unrest",
-    "economy":                  "Economy",
-    "budget":                   "Budget",
     "institutional_strength":   "Institutions",
     "media_freedom":            "Media Freedom",
     "international_reputation": "Int'l Reputation",
 }
 
+ECONOMY_LABELS = {
+    "stock_market":    "Stock Market",
+    "unemployment":    "Unemployment",
+    "consumer_prices": "Consumer Prices",
+    "budget_deficit":  "Budget Deficit",
+}
+
 FACTION_LABELS = {
-    "workers":               "Workers",
-    "business_elite":        "Business Elite",
-    "rural_bloc":            "Rural Bloc",
-    "urban_progressives":    "Urban Progressives",
-    "security_forces":       "Security Forces",
+    "workers":                "Workers",
+    "business_elite":         "Business Elite",
+    "rural_bloc":             "Rural Bloc",
+    "urban_progressives":     "Urban Progressives",
+    "security_forces":        "Security Forces",
     "national_conservatives": "National Conservatives",
 }
 
-# Colours for score bands
+# Stats where high = bad (displayed with inverted colour logic)
+_INVERT_KEYS = {"unrest", "unemployment", "consumer_prices", "budget_deficit"}
+
+
 def _score_colour(value: int, invert: bool = False) -> str:
-    """invert=True for Unrest (high is bad)."""
-    bad   = value > 60 if invert else value < 35
-    good  = value < 35 if invert else value > 65
+    bad  = value > 60 if invert else value < 35
+    good = value < 35 if invert else value > 65
     if bad:  return "red"
     if good: return "green"
     return "yellow"
@@ -54,35 +63,52 @@ def _bar(value: int, width: int = 20, invert: bool = False) -> Text:
 
 # ── Start screen ───────────────────────────────────────────────────────────────
 
-def display_start_screen() -> None:
+def display_start_screen(scenario: dict | None = None) -> None:
     console.print()
-    console.print(Panel(
-        "[bold white]REPUBLIC OF VERIDIA[/bold white]\n"
-        "[dim]A Political Simulator[/dim]\n\n"
-        "You have been elected leader of a small, troubled republic.\n"
-        "Survive twelve months. Make decisions. Live with them.\n\n"
-        "[dim italic]The country will not be improved by optimism.[/dim italic]",
-        title="[bold red]■ VERIDIA[/bold red]",
-        border_style="red",
-        padding=(1, 4),
-    ))
+    if scenario:
+        scenario_header = (
+            f"[bold white]REPUBLIC OF VERIDIA[/bold white]\n"
+            f"[dim]A Political Simulator[/dim]\n\n"
+            f"[bold yellow]{scenario['description']}[/bold yellow]\n\n"
+            f"{scenario['opening_text']}"
+        )
+        console.print(Panel(
+            scenario_header,
+            title="[bold red]■ VERIDIA[/bold red]",
+            border_style="red",
+            padding=(1, 4),
+        ))
+    else:
+        console.print(Panel(
+            "[bold white]REPUBLIC OF VERIDIA[/bold white]\n"
+            "[dim]A Political Simulator[/dim]\n\n"
+            "You have been elected leader of a small, troubled republic.\n"
+            "Survive twelve months. Make decisions. Live with them.\n\n"
+            "[dim italic]The country will not be improved by optimism.[/dim italic]",
+            title="[bold red]■ VERIDIA[/bold red]",
+            border_style="red",
+            padding=(1, 4),
+        ))
     console.print()
 
 
 # ── Stats dashboard ────────────────────────────────────────────────────────────
 
-def display_stats(national_stats: dict, faction_support: dict) -> None:
-    # National stats table
+def display_stats(
+    national_stats: dict,
+    faction_support: dict,
+    economy_stats: dict | None = None,
+) -> None:
+    # National stats column
     stat_table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
-    stat_table.add_column("Stat", style="dim", width=22)
+    stat_table.add_column("Stat", style="dim", width=20)
     stat_table.add_column("Bar", width=28)
 
-    invert_keys = {"unrest"}
     for key, label in STAT_LABELS.items():
         val = national_stats.get(key, 0)
-        stat_table.add_row(label, _bar(val, invert=key in invert_keys))
+        stat_table.add_row(label, _bar(val, invert=key in _INVERT_KEYS))
 
-    # Faction support table
+    # Faction support column
     fac_table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
     fac_table.add_column("Faction", style="dim", width=24)
     fac_table.add_column("Bar", width=26)
@@ -91,12 +117,39 @@ def display_stats(national_stats: dict, faction_support: dict) -> None:
         val = faction_support.get(key, 0)
         fac_table.add_row(label, _bar(val))
 
-    console.print(Panel(
-        Columns([stat_table, fac_table], equal=False, expand=True),
-        title="[bold]NATIONAL STATUS[/bold]",
-        border_style="blue",
-        padding=(0, 1),
-    ))
+    if economy_stats:
+        # Economy column
+        eco_table = Table(box=box.SIMPLE, show_header=False, padding=(0, 1))
+        eco_table.add_column("Economy", style="dim", width=18)
+        eco_table.add_column("Bar", width=26)
+
+        for key, label in ECONOMY_LABELS.items():
+            val = economy_stats.get(key, 0)
+            eco_table.add_row(label, _bar(val, invert=key in _INVERT_KEYS))
+
+        score = composite_economy_score(economy_stats)
+        eco_table.add_row(
+            Text("─" * 10, style="dim"),
+            Text(""),
+        )
+        eco_table.add_row(
+            Text("Health", style="dim"),
+            _bar(score),
+        )
+
+        console.print(Panel(
+            Columns([stat_table, eco_table, fac_table], equal=False, expand=True),
+            title="[bold]NATIONAL STATUS[/bold]",
+            border_style="blue",
+            padding=(0, 1),
+        ))
+    else:
+        console.print(Panel(
+            Columns([stat_table, fac_table], equal=False, expand=True),
+            title="[bold]NATIONAL STATUS[/bold]",
+            border_style="blue",
+            padding=(0, 1),
+        ))
 
 
 # ── Turn screen ────────────────────────────────────────────────────────────────
@@ -109,7 +162,6 @@ def display_turn_screen(state: dict) -> None:
     ))
     console.print()
 
-    # Situation briefing
     if state.get("situation_briefing"):
         console.print(Panel(
             f"[italic]{state['situation_briefing']}[/italic]",
@@ -119,9 +171,29 @@ def display_turn_screen(state: dict) -> None:
         ))
         console.print()
 
-    # Stats
-    display_stats(state["national_stats"], state["faction_support"])
+    display_stats(
+        state["national_stats"],
+        state["faction_support"],
+        state.get("economy_stats"),
+    )
     console.print()
+
+    # Economy drift summary (if any triggered this turn)
+    drift = state.get("economy_drift_descriptions") or []
+    pressure = state.get("faction_pressure_descriptions") or []
+    if drift or pressure:
+        lines = []
+        for d in drift:
+            lines.append(f"[dim]• {d}[/dim]")
+        for d in pressure:
+            lines.append(f"[dim]• {d}[/dim]")
+        console.print(Panel(
+            "\n".join(lines),
+            title="[dim]ECONOMIC CONDITIONS[/dim]",
+            border_style="dim",
+            padding=(0, 2),
+        ))
+        console.print()
 
     # Crisis card
     crisis = state["active_crisis"]
@@ -133,7 +205,6 @@ def display_turn_screen(state: dict) -> None:
     ))
     console.print()
 
-    # Options (no effects shown — player sees them only after choosing)
     console.print("  [bold]How do you respond?[/bold]\n")
     for i, opt in enumerate(crisis["options"], 1):
         console.print(f"  [bold cyan]{i}.[/bold cyan] [bold]{opt['label']}[/bold]")
@@ -150,25 +221,27 @@ def display_consequences(state: dict) -> None:
 
     option = state["active_crisis"]["options"][state["player_choice_index"]]
 
-    # Decision taken
     console.print(f"  [bold]Decision:[/bold] {option['label']}")
     console.print()
 
-    # Stat changes
     _display_effect_table(
         "NATIONAL STATS",
         state.get("final_stat_effects") or {},
         STAT_LABELS,
     )
 
-    # Faction changes
+    _display_effect_table(
+        "ECONOMY",
+        state.get("final_economy_effects") or {},
+        ECONOMY_LABELS,
+    )
+
     _display_effect_table(
         "FACTION SUPPORT",
         state.get("final_faction_effects") or {},
         FACTION_LABELS,
     )
 
-    # Threshold events
     if state.get("triggered_events"):
         from game.config import THRESHOLD_EVENTS
         console.print(Panel(
@@ -182,7 +255,6 @@ def display_consequences(state: dict) -> None:
         ))
         console.print()
 
-    # AI reaction reasons (faction context modifier)
     reactions = state.get("ai_reactions") or {}
     if reactions:
         console.print("  [bold dim]Faction readings:[/bold dim]")
@@ -192,7 +264,6 @@ def display_consequences(state: dict) -> None:
             console.print(f"    [dim]{label}:[/dim] {sentiment} ({r['confidence']}) — {r['reason']}")
         console.print()
 
-    # Advisor reactions
     advisors = state.get("advisor_reactions") or []
     if advisors:
         console.print(Panel(
@@ -206,7 +277,6 @@ def display_consequences(state: dict) -> None:
         ))
         console.print()
 
-    # Faction narrative
     faction_narr = state.get("faction_narrative") or {}
     if faction_narr:
         console.print("  [bold dim]Public statements:[/bold dim]")
@@ -215,7 +285,6 @@ def display_consequences(state: dict) -> None:
             console.print(f"    [dim]{label}:[/dim] \"{text}\"")
         console.print()
 
-    # Headlines
     headlines = state.get("headlines") or []
     if headlines:
         console.print("  [bold dim]THE PRESS:[/bold dim]")
@@ -225,9 +294,12 @@ def display_consequences(state: dict) -> None:
             console.print(f"    [italic dim]{outlet}:[/italic dim] {headline}")
         console.print()
 
-    # Updated stats
     console.print()
-    display_stats(state["national_stats"], state["faction_support"])
+    display_stats(
+        state["national_stats"],
+        state["faction_support"],
+        state.get("economy_stats"),
+    )
     console.print()
 
     input("  [Press Enter to continue...]")
@@ -283,7 +355,11 @@ def display_end_screen(state: dict) -> None:
     ))
     console.print()
 
-    display_stats(state["national_stats"], state["faction_support"])
+    display_stats(
+        state["national_stats"],
+        state["faction_support"],
+        state.get("economy_stats"),
+    )
     console.print()
 
     if state.get("end_summary"):
@@ -321,4 +397,8 @@ def display_loss_screen(state: dict) -> None:
         padding=(1, 4),
     ))
     console.print()
-    display_stats(state["national_stats"], state["faction_support"])
+    display_stats(
+        state["national_stats"],
+        state["faction_support"],
+        state.get("economy_stats"),
+    )

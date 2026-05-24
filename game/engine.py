@@ -41,8 +41,14 @@ def _check_condition(
     threshold: int,
     national_stats: dict[str, int],
     faction_support: dict[str, int],
+    economy_stats: dict[str, int] | None = None,
 ) -> bool:
-    value = national_stats.get(key) if key in national_stats else faction_support.get(key, 0)
+    if economy_stats and key in economy_stats:
+        value = economy_stats[key]
+    elif key in national_stats:
+        value = national_stats[key]
+    else:
+        value = faction_support.get(key, 0)
     return _OPS[op](value, threshold)
 
 
@@ -129,6 +135,7 @@ def check_thresholds(
     national_stats: dict[str, int],
     faction_support: dict[str, int],
     already_triggered: set[str],
+    economy_stats: dict[str, int] | None = None,
 ) -> list[str]:
     """Return list of newly triggered threshold event keys."""
     triggered: list[str] = []
@@ -136,7 +143,7 @@ def check_thresholds(
         if event_key in already_triggered:
             continue
         if all(
-            _check_condition(key, op, val, national_stats, faction_support)
+            _check_condition(key, op, val, national_stats, faction_support, economy_stats)
             for key, op, val in spec["conditions"]
         ):
             triggered.append(event_key)
@@ -147,11 +154,16 @@ def apply_threshold_effects(
     event_key: str,
     national_stats: dict[str, int],
     faction_support: dict[str, int],
-) -> tuple[dict[str, int], dict[str, int]]:
-    spec = THRESHOLD_EVENTS[event_key]
+    economy_stats: dict[str, int],
+) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+    from game.economy import apply_economy_effects
+    spec       = THRESHOLD_EVENTS[event_key]
     stat_fx    = spec.get("stat_effects", {})
     faction_fx = spec.get("faction_effects", {})
-    return apply_base_effects(national_stats, faction_support, stat_fx, faction_fx)
+    economy_fx = spec.get("economy_effects", {})
+    new_stats, new_factions = apply_base_effects(national_stats, faction_support, stat_fx, faction_fx)
+    new_economy = apply_economy_effects(economy_stats, economy_fx)
+    return new_stats, new_factions, new_economy
 
 
 # ── Loss / win evaluation ─────────────────────────────────────────────────────
@@ -159,10 +171,12 @@ def apply_threshold_effects(
 def check_loss(
     national_stats: dict[str, int],
     faction_support: dict[str, int],
+    economy_stats: dict[str, int] | None = None,
 ) -> tuple[bool, str]:
     """Return (is_lost, reason_text)."""
+    combined = {**national_stats, **(economy_stats or {}), **faction_support}
     for key, op, val, text in LOSS_CONDITIONS:
-        value = national_stats.get(key) if key in national_stats else faction_support.get(key, 100)
+        value = combined.get(key, 100)
         if _OPS[op](value, val):
             return True, text
     return False, ""
@@ -171,13 +185,13 @@ def check_loss(
 def determine_end_state(
     national_stats: dict[str, int],
     faction_support: dict[str, int],
+    economy_stats: dict[str, int] | None = None,
 ) -> tuple[str, str]:
     """Return (end_state_name, flavour_text) — first matching rule wins."""
-    combined = {**national_stats, **faction_support}
+    combined = {**national_stats, **(economy_stats or {}), **faction_support}
     for name, conditions, flavour in END_STATE_RULES:
         if all(_OPS[op](combined.get(k, 0), v) for k, (op, v) in conditions.items()):
             return name, flavour
-    # Should always match the fallback rule, but just in case:
     return "Failed Democrat", "History will be kind. History is usually wrong."
 
 
