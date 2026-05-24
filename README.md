@@ -2,7 +2,7 @@
 
 A turn-based political simulator where you govern a small, troubled fictional republic through twelve months of crises. Every decision you make shifts faction loyalty, national stability, and your grip on power — narrated by an LLM with a dark sense of humour.
 
-Built with LangGraph, OpenAI, and Rich.
+Built with LangGraph, OpenAI, Rich (CLI), and React + FastAPI (web).
 
 ---
 
@@ -12,37 +12,74 @@ You are the newly elected leader of the Republic of Veridia. Each month, a polit
 
 The world doesn't just react to your decisions — it reacts to their consequences. The economy runs as an autonomous subsystem: stock market, unemployment, consumer prices, and budget deficit all drift every turn based on current conditions, exert passive pressure on faction support, and weight which crises are likely to appear next.
 
+A second mode — **freeform** — replaces the authored crisis menu with a fully LLM-driven experience: the AI generates each crisis as a causal consequence of your prior decisions, you respond in plain language, and the AI interprets your response into structured game effects. The same deterministic engine still enforces all bounds.
+
 Survive twelve months without collapse, coup, or total institutional failure.
 
 ### Core design principle
 
 > Deterministic logic decides the bounds of truth. The LLM interprets faction attitudes inside those bounds.
 
-The game engine owns all numerical outcomes. The LLM never writes directly to game state — it classifies reactions (from an allowed set) and generates narrative text only.
+The game engine owns all numerical outcomes. The LLM never writes directly to game state — it classifies reactions (from an allowed set) and generates narrative text only. In freeform mode, the LLM also proposes numerical effects, but the engine clamps every value before applying it.
 
 ---
 
 ## Setup
 
+### CLI (local, for testing)
+
 **Prerequisites:** Python 3.11+, an OpenAI API key.
 
 ```bash
-# 1. Clone and enter the project
 cd fungame05
-
-# 2. Install dependencies
 pip install -r requirements.txt
+cp .env.example .env   # add your OPENAI_API_KEY
 
-# 3. Configure your API key
-cp .env.example .env
-# Edit .env and add your OPENAI_API_KEY
-
-# 4. Play
+# Classic mode
 python main.py
 
-# Or start with a scenario
+# Freeform mode (AI-generated crises, plain-language responses)
+python main.py --mode freeform
+
+# Scenarios (both modes)
 python main.py --scenario depression
-python main.py --list-scenarios   # see all options
+python main.py --mode freeform --scenario at_war
+python main.py --list-scenarios
+```
+
+### Web UI (local dev)
+
+**Additional prerequisites:** Node.js 18+.
+
+```bash
+# Terminal 1 — FastAPI backend
+pip install -r requirements.txt
+uvicorn api.main:app --reload --port 8000
+
+# Terminal 2 — Vite dev server (proxies /api to :8000 automatically)
+cd web
+npm install
+npm run dev
+# → open http://localhost:5173
+```
+
+### Deploy to Railway
+
+1. Push the repo to GitHub
+2. Create a new Railway project → **Deploy from GitHub repo**
+3. Railway auto-detects the `Dockerfile` and builds: installs Python deps, then builds the React frontend
+4. Add environment variable: `OPENAI_API_KEY=sk-...`
+5. Optionally add `OPENAI_MODEL=gpt-4o-mini` (default) or any other supported model
+6. Railway exposes the service on a public URL — FastAPI serves the React app at `/` and the API at `/api/`
+
+The Dockerfile build sequence:
+```
+python:3.11-slim base
+→ install Node.js 20
+→ pip install -r requirements.txt
+→ cd web && npm install && npm run build   (React → web/dist/)
+→ copy application source
+→ CMD: uvicorn api.main:app --host 0.0.0.0 --port $PORT
 ```
 
 ---
@@ -84,9 +121,29 @@ Depending on your final stats, you'll be classified as one of:
 
 ```
 fungame05/
-├── main.py                   Entry point and outer game loop
+├── main.py                   CLI entry point and game loop
 ├── requirements.txt
 ├── .env.example              Copy to .env and add your API key
+├── Dockerfile                Multi-stage build: Python + Node.js → Railway deploy
+├── railway.toml              Railway deployment config (Dockerfile path, health check)
+│
+├── api/                      FastAPI web backend
+│   ├── main.py               App setup: CORS, API router, React static file serve
+│   ├── routes.py             POST /api/game, POST /api/game/{id}/resolve, GET, DELETE
+│   └── session.py            In-memory session store (game_id → GameSession)
+│
+├── web/                      React + Vite + Tailwind frontend
+│   ├── src/
+│   │   ├── App.jsx           View state machine (home → playing → consequences → ended)
+│   │   ├── api.js            fetch wrappers (startGame, resolveGame)
+│   │   └── components/
+│   │       ├── HomeScreen.jsx      Mode selection (Classic / Freeform) + start
+│   │       ├── GameScreen.jsx      Live stats + crisis card + choice input
+│   │       ├── ConsequencesPanel.jsx  Effects, advisors, faction quotes, headlines
+│   │       ├── EndScreen.jsx       Verdict, historical record, final stats
+│   │       ├── StatGrid.jsx        Reusable stat bars with health colour coding
+│   │       └── LoadingOverlay.jsx  Fullscreen loading state
+│   └── package.json
 │
 ├── game/
 │   ├── config.py             All tuneable constants — start here for balancing
@@ -100,11 +157,14 @@ fungame05/
 │
 ├── llm/
 │   ├── client.py             OpenAI client via LangChain
-│   └── prompts.py            All LLM prompt templates (tone-controlled)
+│   ├── prompts.py            Classic mode prompt templates (tone-controlled)
+│   └── freeform_prompts.py   Freeform mode prompts: crisis generation + decision evaluation
 │
 ├── graph/
-│   ├── nodes.py              LangGraph node functions (one per turn phase)
-│   └── game_graph.py         Compiled turn graph
+│   ├── nodes.py              Classic mode node functions
+│   ├── game_graph.py         Classic pre-turn + post-turn graphs (no blocking input)
+│   ├── freeform_nodes.py     Freeform mode node functions
+│   └── freeform_graph.py     Freeform pre-turn + post-turn graphs
 │
 └── cli/
     └── display.py            Rich-based terminal display
@@ -205,22 +265,35 @@ Good conditions do the reverse — `stock_market > 70` gives Business Elite +2/t
 
 ### Turn flow (LangGraph)
 
-Each turn is a single invocation of the compiled turn graph:
+Each turn is split into two separate graph invocations, with player input happening between them. This split allows both the CLI (blocking `input()`) and the web API (HTTP request/response) to use the same graphs.
 
+**Classic mode:**
 ```
-run_economy_drift              (deterministic + ±1 random)
-    → select_crisis            (economy-weighted random)
-    → generate_situation_briefing   (LLM)
-    → get_player_choice             (blocking input)
-    → apply_base_effects            (deterministic)
-    → classify_faction_reactions    (LLM — bounded categories only)
-    → compute_final_effects         (deterministic)
-    → check_threshold_events        (deterministic)
-    → generate_narrative            (LLM — advisors, factions, headlines)
-    → save_turn_history
+PRE-TURN (pre_classic_graph):
+  run_economy_drift → select_crisis → generate_situation_briefing → END
+
+  [player chooses option 1–4]
+
+POST-TURN (post_classic_graph):
+  apply_base_effects → classify_faction_reactions → compute_final_effects
+    → check_threshold_events → generate_narrative → save_turn_history → END
 ```
 
-The outer game loop in `main.py` checks win/loss conditions between turns.
+**Freeform mode:**
+```
+PRE-TURN (pre_freeform_graph):
+  run_economy_drift → generate_crisis → END
+
+  [player types free text response]
+
+POST-TURN (post_freeform_graph):
+  evaluate_decision → check_threshold_events
+    → generate_freeform_narrative → save_freeform_turn_history → END
+```
+
+The CLI in `main.py` chains pre-turn → display + input → post-turn in a blocking loop. The web API (`api/routes.py`) runs pre-turn on game start, stores state, then runs post-turn + next pre-turn on each resolve call — returning both the consequences and the next crisis in a single HTTP response.
+
+The outer game loop (CLI or API route) checks win/loss conditions after each post-turn and before the next pre-turn.
 
 ### Node reference
 
@@ -236,6 +309,36 @@ The outer game loop in `main.py` checks win/loss conditions between turns.
 | `check_threshold_events` | Evaluates all 5 threshold conditions against current stats (can reference economy sub-stats), applies extra stat/faction/economy hits for any that trigger |
 | `generate_narrative` | Three LLM calls: advisor reactions, faction statements, newspaper headlines — all display only |
 | `save_turn_history` | Writes the full turn record (including economy snapshot) to history, increments `current_turn` |
+
+### Freeform mode
+
+Activated with `--mode freeform` (CLI) or by selecting "Freeform" on the web home screen. Uses a parallel graph pair instead of the classic graphs.
+
+```
+run_economy_drift              (reused — economy is mode-agnostic)
+    → generate_crisis          (LLM — causally connected to prior decisions)
+    → get_player_freeform_input (free text)
+    → evaluate_decision        (LLM → structured JSON → validated → applied)
+    → check_threshold_events   (reused — deterministic)
+    → generate_freeform_narrative (LLM — advisors, factions, headlines)
+    → save_freeform_turn_history
+```
+
+**Crisis generation** — The LLM receives the last 4 turns of history (crisis title, player input, interpreted action) plus current stats. It is instructed to write a crisis that feels like a causal consequence of recent events, not a random event. The first turn generates an appropriate opening crisis from the world state alone.
+
+**Decision evaluation** — The LLM receives the crisis, the player's free text, full faction personas, and current stats. It returns structured JSON with `interpretation`, `stat_effects`, `economy_effects`, and `faction_effects`. The engine validates every key and clamps every value before applying. If output is invalid, one retry is attempted; if that fails, a small flat penalty applies (indecision has a cost).
+
+**Effect magnitude caps** (set in `config.py`, adjustable):
+
+| Range | Meaning |
+|---|---|
+| ±1–3 | Minor — a symbolic gesture, a press release |
+| ±4–7 | Moderate — a real policy change, a credible action |
+| ±8–12 | Significant — a crackdown, a major concession, a fundamental reversal |
+
+The evaluation prompt explicitly instructs the LLM to assess *what* the player decided, not *how confidently* they phrased it — vague responses get realistic effects based on substance, not penalised for brevity.
+
+**What carries over from classic mode** — The economy drift system, faction pressure, threshold events, loss/win conditions, end states, and all narrative generation (advisors, headlines) work identically. Scenarios compose with freeform mode freely.
 
 ### Bounded AI modifier system
 
@@ -494,12 +597,67 @@ The PRD specified that threshold events should produce **additional forced crisi
 
 ---
 
+## Web API Reference
+
+The FastAPI backend exposes four endpoints (all under `/api/`):
+
+| Method | Path | Body | Returns |
+|--------|------|------|---------|
+| `GET` | `/api/health` | — | `{"status": "ok"}` |
+| `POST` | `/api/game` | `{"mode": "classic"\|"freeform"}` | Initial game state with first crisis |
+| `POST` | `/api/game/{id}/resolve` | `{"choice_index": 0}` or `{"player_input": "..."}` | Consequences + next crisis (or game-over) |
+| `GET` | `/api/game/{id}` | — | Current stored state |
+| `DELETE` | `/api/game/{id}` | — | `{"ok": true}` |
+
+**Resolve response structure:**
+```json
+{
+  "game_id": "abc12345",
+  "mode": "classic",
+  "current_turn": 3,
+  "max_turns": 12,
+  "game_status": "active",
+  "national_stats": { "public_trust": 48, ... },
+  "economy_stats": { "stock_market": 52, ... },
+  "faction_support": { "workers": 45, ... },
+  "economy_drift_descriptions": ["high unemployment spooks investors"],
+  "faction_pressure_descriptions": [],
+  "active_crisis": {
+    "crisis_id": "...",
+    "title": "...",
+    "description": "...",
+    "options": [{"label": "...", "description": "..."}]
+  },
+  "situation_briefing": "...",
+  "consequences": {
+    "selected_option_label": "...",
+    "decision_interpretation": null,
+    "final_stat_effects": { "public_trust": -3, ... },
+    "final_economy_effects": { "stock_market": -5, ... },
+    "final_faction_effects": { "workers": 4, ... },
+    "triggered_events": [],
+    "advisor_reactions": [{"name": "Finance Minister", "reaction": "..."}],
+    "faction_narrative": { "workers": "...", ... },
+    "headlines": [{"outlet": "...", "headline": "..."}]
+  },
+  "end_state": null,
+  "end_summary": null,
+  "loss_reason": null
+}
+```
+
+When `game_status` is `"won"` or `"lost"`, `end_state`, `end_summary`, and/or `loss_reason` are populated. The frontend shows the ConsequencesPanel first (so the player sees what happened), then navigates to the EndScreen.
+
+**Note on scenarios:** Scenarios mutate global Python config state and are CLI-only for MVP. All six factions, all 12 authored crises, and all threshold events are available in the web version.
+
+---
+
 ## Future Plans
 
-- Web UI (React) layered on top of the existing game engine
 - Scripted crisis campaigns (fixed sequence for different simulations)
 - Election system
 - Coalition politics
 - Opposition leader AI
 - Additional world-state subsystems (military, foreign relations, press freedom index)
 - Faction memory across sessions
+- Per-session scenario selection in the web UI (requires per-session config isolation)
