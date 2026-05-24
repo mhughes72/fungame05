@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { startGame } from '../api.js'
 import LoadingOverlay from './LoadingOverlay.jsx'
+import NavButtons from './NavButtons.jsx'
 
 function ModeCard({ selected, onClick, title, tag, description }) {
   return (
@@ -42,8 +43,13 @@ export default function HomeScreen({ onStart }) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6">
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-6 relative">
       {loading && <LoadingOverlay message="INITIALISING..." />}
+
+      {/* Nav buttons — top right */}
+      <div className="absolute top-4 right-6">
+        <NavButtons />
+      </div>
 
       {/* Emblem / title */}
       <div className="text-center mb-12">

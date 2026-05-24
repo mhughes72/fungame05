@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { resolveGame } from '../api.js'
 import LoadingOverlay from './LoadingOverlay.jsx'
 import StatGrid from './StatGrid.jsx'
+import NavButtons from './NavButtons.jsx'
 
 export default function GameScreen({ gameData, onResolve }) {
   const [choice, setChoice] = useState(null)
@@ -43,14 +44,15 @@ export default function GameScreen({ gameData, onResolve }) {
       {/* Top bar */}
       <div className="bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
         <div className="text-red-600 font-black tracking-widest text-sm">■ VERIDIA</div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-5">
           <span className="text-slate-400 text-sm">
             MONTH <span className="text-slate-200 font-bold">{gameData.current_turn}</span>
             <span className="text-slate-600"> / {gameData.max_turns}</span>
           </span>
           <span className="text-xs text-slate-600 uppercase tracking-widest hidden sm:block">
-            {gameData.mode} mode
+            {gameData.mode}
           </span>
+          <NavButtons />
         </div>
       </div>
 
