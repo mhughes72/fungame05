@@ -278,7 +278,9 @@ def end_summary_prompt(
         "Never reference real-world events or politicians."
     )
     key_decisions = [
-        f"Month {t['turn_number']}: {t['crisis_title']} — chose '{t['selected_option']}'"
+        f"Month {t['turn_number']}: {t['crisis_title']} — "
+        + (f"chose '{t['selected_option']}'" if t.get('selected_option')
+           else f"responded: \"{t.get('player_input', '')}\" ({t.get('decision_interpretation', '')})")
         for t in turn_history
     ]
     user = (

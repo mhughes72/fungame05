@@ -119,6 +119,8 @@ def initialize_game(_state: GameState) -> dict:
         "active_crisis": None,
         "used_crisis_ids": [],
         "player_choice_index": None,
+        "player_input": None,
+        "decision_interpretation": None,
         "base_stat_effects": None,
         "base_economy_effects": None,
         "base_faction_effects": None,

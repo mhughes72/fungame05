@@ -43,3 +43,7 @@ htmlcov/
 # Game saves (if added later)
 saves/
 *.save.json
+
+# Frontend build artefacts (built inside Docker / Railway, not committed)
+web/node_modules/
+web/dist/

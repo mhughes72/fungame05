@@ -24,7 +24,9 @@ class GameState(TypedDict):
     # ── Turn data ─────────────────────────────────────────────────────────────
     active_crisis: Optional[dict[str, Any]]
     used_crisis_ids: list[str]
-    player_choice_index: Optional[int]   # 0-based index into active_crisis["options"]
+    player_choice_index: Optional[int]      # classic mode: 0-based index into active_crisis["options"]
+    player_input: Optional[str]             # freeform mode: raw text from player
+    decision_interpretation: Optional[str]  # freeform mode: LLM summary of what player did
 
     # ── Effects computed during a turn ────────────────────────────────────────
     base_stat_effects: Optional[dict[str, int]]

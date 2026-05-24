@@ -141,6 +141,14 @@ ALLOWED_CONFIDENCE: set[str] = {"high", "medium", "low"}
 MAX_AI_MODIFIER = 3
 MIN_AI_MODIFIER = -3
 
+# ─── Freeform mode effect caps ────────────────────────────────────────────────
+# LLM-proposed effects are clamped to these bounds per stat per turn.
+# ±1–3:  minor (a symbolic gesture, a press release)
+# ±4–7:  moderate (a real policy change, a credible action)
+# ±8–12: significant (a crackdown, a large concession, a major reversal)
+MAX_EFFECT_PER_TURN:         int = 12   # national stats and faction support
+MAX_ECONOMY_EFFECT_PER_TURN: int = 10   # economy sub-stats
+
 # ─── Threshold events ─────────────────────────────────────────────────────────
 # Conditions can reference national_stats, faction_support, OR economy_stats keys.
 THRESHOLD_EVENTS: dict[str, dict] = {

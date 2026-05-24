@@ -385,6 +385,121 @@ def display_turn_history(turn_history: list) -> None:
         )
 
 
+# ── Freeform turn screen ──────────────────────────────────────────────────────
+
+def display_freeform_turn_screen(state: dict) -> None:
+    console.print()
+    console.print(Rule(
+        f"[bold]MONTH {state['current_turn']} / {state['max_turns']}[/bold]",
+        style="dim",
+    ))
+    console.print()
+
+    display_stats(
+        state["national_stats"],
+        state["faction_support"],
+        state.get("economy_stats"),
+    )
+    console.print()
+
+    # Economy drift summary
+    drift = state.get("economy_drift_descriptions") or []
+    pressure = state.get("faction_pressure_descriptions") or []
+    if drift or pressure:
+        lines = [f"[dim]• {d}[/dim]" for d in drift + pressure]
+        console.print(Panel(
+            "\n".join(lines),
+            title="[dim]ECONOMIC CONDITIONS[/dim]",
+            border_style="dim",
+            padding=(0, 2),
+        ))
+        console.print()
+
+    # Crisis card — no options listed, player responds freely
+    crisis = state["active_crisis"]
+    console.print(Panel(
+        crisis["description"],
+        title=f"[bold yellow]■ {crisis['title'].upper()}[/bold yellow]",
+        border_style="yellow",
+        padding=(1, 2),
+    ))
+    console.print()
+    console.print("  [bold]How do you respond?[/bold] [dim](type freely — there are no set options)[/dim]")
+
+
+# ── Freeform consequence screen ────────────────────────────────────────────────
+
+def display_freeform_consequences(state: dict) -> None:
+    console.print()
+    console.print(Rule("[bold]CONSEQUENCES[/bold]", style="dim"))
+    console.print()
+
+    # What the player said and how it was read
+    if state.get("player_input"):
+        console.print(f"  [bold]Your response:[/bold] [italic]\"{state['player_input']}\"[/italic]")
+        console.print()
+    if state.get("decision_interpretation"):
+        console.print(Panel(
+            f"[dim]{state['decision_interpretation']}[/dim]",
+            title="[dim]READ AS[/dim]",
+            border_style="dim",
+            padding=(0, 2),
+        ))
+        console.print()
+
+    _display_effect_table("NATIONAL STATS",  state.get("final_stat_effects") or {},    STAT_LABELS)
+    _display_effect_table("ECONOMY",         state.get("final_economy_effects") or {},  ECONOMY_LABELS)
+    _display_effect_table("FACTION SUPPORT", state.get("final_faction_effects") or {},  FACTION_LABELS)
+
+    if state.get("triggered_events"):
+        from game.config import THRESHOLD_EVENTS
+        console.print(Panel(
+            "\n".join(
+                f"[bold red]⚠ {k.replace('_', ' ').upper()}[/bold red]\n  {THRESHOLD_EVENTS[k]['description']}"
+                for k in state["triggered_events"]
+                if k in THRESHOLD_EVENTS
+            ),
+            title="[bold red]CRISIS EVENTS TRIGGERED[/bold red]",
+            border_style="red",
+        ))
+        console.print()
+
+    advisors = state.get("advisor_reactions") or []
+    if advisors:
+        console.print(Panel(
+            "\n\n".join(f"[bold]{a['name']}:[/bold] {a['reaction']}" for a in advisors),
+            title="[bold]ADVISOR REACTIONS[/bold]",
+            border_style="cyan",
+            padding=(0, 2),
+        ))
+        console.print()
+
+    faction_narr = state.get("faction_narrative") or {}
+    if faction_narr:
+        console.print("  [bold dim]Public statements:[/bold dim]")
+        for fid, text in faction_narr.items():
+            label = FACTION_LABELS.get(fid, fid)
+            console.print(f"    [dim]{label}:[/dim] \"{text}\"")
+        console.print()
+
+    headlines = state.get("headlines") or []
+    if headlines:
+        console.print("  [bold dim]THE PRESS:[/bold dim]")
+        for h in headlines:
+            console.print(f"    [italic dim]{h.get('outlet', '')}:[/italic dim] {h.get('headline', '')}")
+        console.print()
+
+    console.print()
+    display_stats(
+        state["national_stats"],
+        state["faction_support"],
+        state.get("economy_stats"),
+    )
+    console.print()
+
+    input("  [Press Enter to continue...]")
+
+
 # ── Loss screen ────────────────────────────────────────────────────────────────
 
 def display_loss_screen(state: dict) -> None:
