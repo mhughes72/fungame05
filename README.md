@@ -52,15 +52,21 @@ python main.py --list-scenarios
 **Additional prerequisites:** Node.js 18+.
 
 ```bash
-# Terminal 1 — FastAPI backend
-pip install -r requirements.txt
+cd web && npm install && cd ..   # first time only
+
+python dev.py
+# → Backend:  http://localhost:8000
+# → Frontend: http://localhost:5173
+# Ctrl+C kills both
+```
+
+Or run them separately if you prefer:
+```bash
+# Terminal 1
 uvicorn api.main:app --reload --port 8000
 
-# Terminal 2 — Vite dev server (proxies /api to :8000 automatically)
-cd web
-npm install
-npm run dev
-# → open http://localhost:5173
+# Terminal 2
+cd web && npm run dev
 ```
 
 ### Deploy to Railway
