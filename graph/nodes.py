@@ -137,6 +137,7 @@ def initialize_game(_state: GameState) -> dict:
         "faction_narrative": None,
         "headlines": None,
         "end_summary": None,
+        "campaign_flags": {},
         "recent_events": [],
         "turn_history": [],
     }

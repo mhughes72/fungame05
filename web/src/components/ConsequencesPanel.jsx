@@ -83,7 +83,7 @@ export default function ConsequencesPanel({ gameData, onContinue }) {
           <div className="text-xs text-slate-500 uppercase tracking-widest mb-3 font-bold">
             Decision
           </div>
-          {gameData.mode === 'classic' ? (
+          {gameData.mode !== 'freeform' ? (
             <div className="text-slate-100 font-bold text-lg">
               {cons.selected_option_label ?? '—'}
             </div>

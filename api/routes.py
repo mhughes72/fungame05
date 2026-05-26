@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from api.session import create_session, delete_session, get_session, update_session_state
 from game.engine import check_loss, determine_end_state
+from graph.campaign_graph import post_campaign_graph, pre_campaign_graph
 from graph.freeform_graph import post_freeform_graph, pre_freeform_graph
 from graph.game_graph import post_classic_graph, pre_classic_graph
 from graph.nodes import generate_end_summary, initialize_game
@@ -112,16 +113,18 @@ async def health():
 
 @router.post("/game")
 async def start_game(body: StartRequest):
-    if body.mode not in ("classic", "freeform"):
+    if body.mode not in ("classic", "freeform", "campaign"):
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown mode {body.mode!r}. Use 'classic' or 'freeform'.",
+            detail=f"Unknown mode {body.mode!r}. Use 'classic', 'freeform', or 'campaign'.",
         )
 
     state = initialize_game({})
 
     if body.mode == "freeform":
         state = pre_freeform_graph.invoke(state)
+    elif body.mode == "campaign":
+        state = pre_campaign_graph.invoke(state)
     else:
         state = pre_classic_graph.invoke(state)
 
@@ -139,9 +142,9 @@ async def resolve_turn(game_id: str, body: ResolveRequest):
     mode  = session.mode
 
     # ── Apply player decision ──────────────────────────────────────────────────
-    if mode == "classic":
+    if mode in ("classic", "campaign"):
         if body.choice_index is None:
-            raise HTTPException(status_code=400, detail="choice_index required for classic mode.")
+            raise HTTPException(status_code=400, detail="choice_index required for classic/campaign mode.")
         crisis   = state.get("active_crisis") or {}
         n_opts   = len(crisis.get("options", []))
         if not (0 <= body.choice_index < n_opts):
@@ -150,7 +153,10 @@ async def resolve_turn(game_id: str, body: ResolveRequest):
                 detail=f"choice_index must be 0–{n_opts - 1}.",
             )
         state["player_choice_index"] = body.choice_index
-        state = post_classic_graph.invoke(state)
+        if mode == "campaign":
+            state = post_campaign_graph.invoke(state)
+        else:
+            state = post_classic_graph.invoke(state)
     else:
         if not body.player_input or not body.player_input.strip():
             raise HTTPException(status_code=400, detail="player_input required for freeform mode.")
@@ -189,6 +195,8 @@ async def resolve_turn(game_id: str, body: ResolveRequest):
     # ── Next turn pre-phase ────────────────────────────────────────────────────
     if mode == "freeform":
         state = pre_freeform_graph.invoke(state)
+    elif mode == "campaign":
+        state = pre_campaign_graph.invoke(state)
     else:
         state = pre_classic_graph.invoke(state)
 

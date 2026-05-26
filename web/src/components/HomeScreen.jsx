@@ -67,13 +67,20 @@ export default function HomeScreen({ onStart }) {
       </div>
 
       {/* Mode selection */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl w-full mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-4xl w-full mb-8">
         <ModeCard
           selected={mode === 'classic'}
           onClick={() => setMode('classic')}
           title="Classic"
           tag="Authored Crises"
           description="Face curated political crises with multiple-choice responses. Each option has authored consequences. Good for a structured, balanced experience."
+        />
+        <ModeCard
+          selected={mode === 'campaign'}
+          onClick={() => setMode('campaign')}
+          title="Campaign"
+          tag="Scripted Year"
+          description="A single year with a spine: 26 scripted crises, three acts, one character named Kosic who knew in month three what kind of leader you'd become. The path emerges from decisions that each seemed reasonable at the time."
         />
         <ModeCard
           selected={mode === 'freeform'}

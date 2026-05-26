@@ -50,6 +50,11 @@ class GameState(TypedDict):
     headlines: Optional[list[str]]
     end_summary: Optional[str]
 
+    # ── Campaign mode ─────────────────────────────────────────────────────────
+    # Tracks narrative flags: fiscal_opening, kosic_relationship, protest_response,
+    # press_response, path (reformer/pragmatist/consolidator), and any consequence flags.
+    campaign_flags: dict
+
     # ── History ───────────────────────────────────────────────────────────────
     recent_events: list[str]    # rolling window for LLM context
     turn_history: list[dict[str, Any]]

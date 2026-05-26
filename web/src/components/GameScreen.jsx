@@ -10,17 +10,17 @@ export default function GameScreen({ gameData, onResolve }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  const isClassic = gameData.mode === 'classic'
+  const isChoiceBased = gameData.mode === 'classic' || gameData.mode === 'campaign'
   const crisis = gameData.active_crisis
 
-  const canSubmit = isClassic ? choice !== null : inputText.trim().length > 0
+  const canSubmit = isChoiceBased ? choice !== null : inputText.trim().length > 0
 
   async function handleSubmit() {
     if (!canSubmit || loading) return
     setLoading(true)
     setError(null)
     try {
-      const payload = isClassic
+      const payload = isChoiceBased
         ? { choice_index: choice }
         : { player_input: inputText.trim() }
       const data = await resolveGame(gameData.game_id, payload)
@@ -32,7 +32,7 @@ export default function GameScreen({ gameData, onResolve }) {
   }
 
   function handleKeyDown(e) {
-    if (!isClassic && e.key === 'Enter' && e.ctrlKey) {
+    if (!isChoiceBased && e.key === 'Enter' && e.ctrlKey) {
       handleSubmit()
     }
   }
@@ -114,10 +114,10 @@ export default function GameScreen({ gameData, onResolve }) {
             {/* Decision panel */}
             <div className="bg-slate-900 border border-slate-800 p-6">
               <div className="text-xs text-slate-500 uppercase tracking-widest mb-5 font-bold">
-                {isClassic ? 'Select your response' : 'Your response (free text)'}
+                {isChoiceBased ? 'Select your response' : 'Your response (free text)'}
               </div>
 
-              {isClassic ? (
+              {isChoiceBased ? (
                 /* Classic: numbered option buttons */
                 <div className="space-y-3">
                   {(crisis?.options ?? []).map((opt, i) => (
